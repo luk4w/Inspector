@@ -3,7 +3,6 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Forms;
-using System.Collections.Generic;
 using System.Linq;
 
 static class Program
@@ -30,7 +29,7 @@ class Inspector : Form
 
 
     private SplitContainer splitContainer;
-
+    private TextBox searchBar;
     private TreeView treeViewAll;
     private TextBox textBoxDetails;
 
@@ -47,12 +46,54 @@ class Inspector : Form
             {
                 foreach (var prop in element.GetSupportedProperties())
                 {
-                    var value = element.GetCurrentPropertyValue(prop) ?? "(null)";
-                    var line = $"{prop.ProgrammaticName}: {value}";
+
+                    // var value = element.GetCurrentPropertyValue(prop) ?? "(null)";
+                    // line = $"{prop.ProgrammaticName}: {value}";
+                    
+                    var line = string.Empty;
+                    switch (prop.ProgrammaticName)
+                    {
+                        case "AutomationElementIdentifiers.ClassNameProperty":
+                            line = $"ClassName: {element.Current.ClassName}";
+                            break;
+                        case "AutomationElementIdentifiers.NameProperty":
+                            line = $"Name: {element.Current.Name}";
+                            break;
+                        case "AutomationElementIdentifiers.AutomationIdProperty":
+                            line = $"AutomationId: {element.Current.AutomationId}";
+                            break;
+                        case "AutomationElementIdentifiers.ControlTypeProperty":
+                            line = $"ControlType: {element.Current.LocalizedControlType}";
+                            break;
+                        case "AutomationElementIdentifiers.BoundingRectangleProperty":
+                            var rect = element.GetCurrentPropertyValue(prop) as Rect?;
+                            line = $"BoundingRectangle: {rect?.X}, {rect?.Y}, {rect?.Width}, {rect?.Height}";
+                            break;
+                        case "AutomationElementIdentifiers.ParentProperty":
+                            var parent = element.GetCurrentPropertyValue(prop) as AutomationElement;
+                            line = $"Parent: {parent?.Current.Name}";
+                            break;
+                        default:
+                            continue;
+                    }
                     textBoxDetails.AppendText(line + Environment.NewLine);
                 }
             }
         };
+    }
+
+    private static TreeNode FindNodeByText(TreeNode root, string text)
+    {
+        if (root.Text.Contains(text, StringComparison.InvariantCultureIgnoreCase))
+            return root;
+
+        foreach (TreeNode child in root.Nodes)
+        {
+            var found = FindNodeByText(child, text);
+            if (found != null)
+                return found;
+        }
+        return null;
     }
 
     private void InitializeComponent()
@@ -63,12 +104,60 @@ class Inspector : Form
             Orientation = Orientation.Vertical
         };
 
-        // Árvore completa
-        treeViewAll = new TreeView {
+        Load += (s, e) => splitContainer.SplitterDistance = (int)(this.ClientSize.Width * 2/3);
+
+        // TableLayoutPanel no lado esquerdo
+        var leftPanel = new TableLayoutPanel
+        {
             Dock = DockStyle.Fill,
-            HideSelection = false   // mantém a seleção visível mesmo sem foco
+            ColumnCount = 1,
+            RowCount = 2
         };
-        splitContainer.Panel1.Controls.Add(treeViewAll);
+        leftPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        leftPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+
+        // search bar
+        searchBar = new TextBox
+        {
+            Dock = DockStyle.Top,
+            PlaceholderText = "Search...",
+            AutoSize = true
+        };
+        leftPanel.Controls.Add(searchBar, 0, 0);
+
+        searchBar.KeyDown += (s, e) =>
+        {
+            if (e.KeyCode == Keys.Enter)
+            {
+                e.SuppressKeyPress = true;
+                var searchText = searchBar.Text.ToLowerInvariant();
+                if (string.IsNullOrWhiteSpace(searchText))
+                    return;
+
+                foreach (TreeNode node in treeViewAll.Nodes)
+                {
+                    var found = FindNodeByText(node, searchText);
+                    if (found != null)
+                    {
+                        treeViewAll.SelectedNode = found;
+                        treeViewAll.Focus();
+                        found.EnsureVisible();
+                        break;
+                    }
+                }
+            }
+        };
+
+        // Árvore completa
+        treeViewAll = new TreeView
+        {
+            Dock = DockStyle.Fill,
+            HideSelection = false
+        };
+        leftPanel.Controls.Add(treeViewAll);
+
+        // adiciona o leftContainer ao painel esquerdo do split principal
+        splitContainer.Panel1.Controls.Add(leftPanel);
 
         // Detalhes do elemento
         textBoxDetails = new TextBox { Dock = DockStyle.Fill, Multiline = true };
@@ -116,7 +205,7 @@ class Inspector : Form
         treeViewAll.Nodes.Clear();
         var fullRootNode = CreateTreeNode(fullRoot);
         treeViewAll.Nodes.Add(fullRootNode);
-        
+
         // Seleciona o elemento na árvore
         var selectedNode = FindNode(fullRootNode, e);
         if (selectedNode != null)
@@ -128,21 +217,21 @@ class Inspector : Form
         }
 
     }
-    
+
     private static TreeNode FindNode(TreeNode root, AutomationElement element)
-{
-    if (root.Tag is AutomationElement el && el.Equals(element))
-        return root;
-
-    foreach (TreeNode child in root.Nodes)
     {
-        var found = FindNode(child, element);
-        if (found != null)
-            return found;
-    }
+        if (root.Tag is AutomationElement el && el.Equals(element))
+            return root;
 
-    return null;
-}
+        foreach (TreeNode child in root.Nodes)
+        {
+            var found = FindNode(child, element);
+            if (found != null)
+                return found;
+        }
+
+        return null;
+    }
 
     private static TreeNode CreateTreeNode(TreeNode source)
     {
@@ -166,7 +255,6 @@ class Inspector : Form
             el.Current.Name,
             el.Current.LocalizedControlType,
             el.Current.ItemType,
-            el.Current.ControlType.ProgrammaticName,
             el.Current.AutomationId,
             el.Current.ClassName
         };
@@ -204,18 +292,4 @@ public struct POINT
 {
     public int X;
     public int Y;
-}
-
-
-public class ElementNode(string name, string className, string type)
-{
-    public string Name { get; } = name;
-    public string ClassName { get; } = className;
-    public string Type { get; } = type;
-    public List<ElementNode> Children { get; } = [];
-
-    public override string ToString()
-    {
-        return $"Name: {Name}, Class: {ClassName}, Type: {Type}, Children: {Children.Count}";
-    }
 }
