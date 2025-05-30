@@ -144,7 +144,7 @@ class Inspector : Form
                             $".{pyType}(Name={Quote(name)}, ClassName={Quote(className)}, AutomationId={Quote(automationId)})"
                         );
                     }
-                    else if(!string.IsNullOrEmpty(name) && !string.IsNullOrWhiteSpace(className))
+                    else if (!string.IsNullOrEmpty(name) && !string.IsNullOrWhiteSpace(className))
                     {
                         suggestions.AppendLine(
                             $".{pyType}(Name={Quote(name)}, ClassName={Quote(className)})"
@@ -231,10 +231,27 @@ class Inspector : Form
     static extern bool SetCursorPos(int X, int Y);
     [DllImport("user32.dll")]
     static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, UIntPtr dwExtraInfo);
+    [DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
     const uint MOUSEEVENTF_RIGHTDOWN = 0x0008;
     const uint MOUSEEVENTF_RIGHTUP = 0x0010;
     const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
     const uint MOUSEEVENTF_LEFTUP = 0x0004;
+    private const int SW_RESTORE = 9;
+    private static void ActiveParentWindow(AutomationElement element)
+    {
+        if (element == null) return;
+        var window = GetParentWindow(element);
+        if (window == null) return;
+        var hwnd = new IntPtr(window.Current.NativeWindowHandle);
+        if (hwnd == IntPtr.Zero) return;
+        ShowWindow(hwnd, SW_RESTORE);
+        SetForegroundWindow(hwnd);
+    }
 
     private void PerformClickOnSelectedNode()
     {
@@ -242,6 +259,7 @@ class Inspector : Form
         var rect = element.GetCurrentPropertyValue(AutomationElement.BoundingRectangleProperty) as Rect?;
         if (rect.HasValue)
         {
+            ActiveParentWindow(element);
             int x = (int)(rect.Value.X + rect.Value.Width / 2);
             int y = (int)(rect.Value.Y + rect.Value.Height / 2);
             SetCursorPos(x, y);
@@ -257,6 +275,7 @@ class Inspector : Form
         var rect = element.GetCurrentPropertyValue(AutomationElement.BoundingRectangleProperty) as Rect?;
         if (rect.HasValue)
         {
+            ActiveParentWindow(element);
             int x = (int)(rect.Value.X + rect.Value.Width / 2);
             int y = (int)(rect.Value.Y + rect.Value.Height / 2);
             SetCursorPos(x, y);
@@ -271,6 +290,7 @@ class Inspector : Form
         var rect = element.GetCurrentPropertyValue(AutomationElement.BoundingRectangleProperty) as Rect?;
         if (rect.HasValue)
         {
+            ActiveParentWindow(element);
             var x = (int)(rect.Value.X + rect.Value.Width / 2);
             var y = (int)(rect.Value.Y + rect.Value.Height / 2);
             SetCursorPos(x, y);
@@ -288,9 +308,10 @@ class Inspector : Form
         var rect = element.GetCurrentPropertyValue(AutomationElement.BoundingRectangleProperty) as Rect?;
         if (rect.HasValue)
         {
+            ActiveParentWindow(element);
             var x = (int)(rect.Value.X + rect.Value.Width / 2);
             var y = (int)(rect.Value.Y + rect.Value.Height / 2);
-            
+
             var str = Microsoft.VisualBasic.Interaction.InputBox(
             "Please type the text you want to send to the selected element:",
             "User Input",
