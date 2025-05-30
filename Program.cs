@@ -15,7 +15,6 @@ static class Program
     }
 }
 
-
 class Inspector : Form
 {
     const int WM_HOTKEY = 0x0312;
@@ -27,13 +26,12 @@ class Inspector : Form
     static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
     [DllImport("user32.dll")]
     static extern bool GetCursorPos(out POINT lpPoint);
-
-
     private SplitContainer splitContainer;
     private TextBox searchBar;
     private TreeView treeViewAll;
     private TextBox textBoxDetails;
     private TextBox textBoxSuggestions;
+    private nint lastHwnd;
     private static readonly Dictionary<string, string> PythonControlMap = new()
     {
         { "app bar",      "AppBarControl"     },
@@ -78,6 +76,136 @@ class Inspector : Form
         { "item",         "DataItemControl"   }
     };
 
+
+    private bool _retrySelect = false;
+    private void SelectElement(AutomationElement element)
+    {
+        try
+        {
+            foreach (var prop in element.GetSupportedProperties())
+            {
+                var line = string.Empty;
+                switch (prop.ProgrammaticName)
+                {
+                    case "AutomationElementIdentifiers.ClassNameProperty":
+                        line = $"ClassName: {element.Current.ClassName}";
+                        break;
+                    case "AutomationElementIdentifiers.NameProperty":
+                        line = $"Name: {element.Current.Name}";
+                        break;
+                    case "AutomationElementIdentifiers.AutomationIdProperty":
+                        line = $"AutomationId: {element.Current.AutomationId}";
+                        break;
+                    case "AutomationElementIdentifiers.ControlTypeProperty":
+                        line = $"ControlType: {element.Current.LocalizedControlType}";
+                        break;
+                    case "AutomationElementIdentifiers.BoundingRectangleProperty":
+                        var rect = element.GetCurrentPropertyValue(prop) as Rect?;
+                        line = $"BoundingRectangle: {rect?.X}, {rect?.Y}, {rect?.Width}, {rect?.Height}";
+                        break;
+                    case "AutomationElementIdentifiers.ParentProperty":
+                        var parent = element.GetCurrentPropertyValue(prop) as AutomationElement;
+                        line = $"Parent: {parent?.Current.Name}";
+                        break;
+                    default:
+                        continue;
+                }
+                textBoxDetails.AppendText(line + Environment.NewLine);
+            }
+
+            try
+            {
+                StringBuilder suggestions = new();
+                var name = element.Current.Name;
+                var className = element.Current.ClassName;
+                var automationId = element.Current.AutomationId;
+                var type = element.Current.ControlType.ProgrammaticName;
+
+                var window = GetTopmostWindow(element);
+                suggestions.AppendLine(
+                    $".WindowControl(Name={window.Current.Name}, ClassName={window.Current.ClassName})"
+                );
+
+                static string Quote(string s) => s is null ? "''" : "\"" + s.Replace("\"", "\"\"") + "\"";
+                var locType = element.Current.LocalizedControlType?.ToLowerInvariant() ?? "";
+                if (!PythonControlMap.TryGetValue(locType, out var pyType))
+                    pyType = "CustomControl";
+
+                if (!string.IsNullOrEmpty(name) && !string.IsNullOrWhiteSpace(className) && !string.IsNullOrWhiteSpace(automationId))
+                {
+                    suggestions.AppendLine(
+                        $".{pyType}(Name={Quote(name)}, ClassName={Quote(className)}, AutomationId={Quote(automationId)})"
+                    );
+                }
+                else if (!string.IsNullOrEmpty(name) && !string.IsNullOrWhiteSpace(className))
+                {
+                    suggestions.AppendLine(
+                        $".{pyType}(Name={Quote(name)}, ClassName={Quote(className)})"
+                    );
+                }
+                else if (!string.IsNullOrEmpty(name) && !string.IsNullOrWhiteSpace(automationId))
+                {
+                    suggestions.AppendLine(
+                        $".{pyType}(Name={Quote(name)}, AutomationId={Quote(automationId)})"
+                    );
+                }
+                else if (!string.IsNullOrEmpty(className) && !string.IsNullOrWhiteSpace(automationId))
+                {
+                    suggestions.AppendLine(
+                        $".{pyType}(ClassName={Quote(className)}, AutomationId={Quote(automationId)})"
+                    );
+                }
+                else if (!string.IsNullOrEmpty(name))
+                {
+                    suggestions.AppendLine(
+                        $".{pyType}(Name={Quote(name)})"
+                    );
+                }
+                else if (!string.IsNullOrEmpty(className))
+                {
+                    suggestions.AppendLine(
+                        $".{pyType}(ClassName={Quote(className)})"
+                    );
+                }
+                else if (!string.IsNullOrEmpty(automationId))
+                {
+                    suggestions.AppendLine(
+                        $".{pyType}(AutomationId={Quote(automationId)})"
+                    );
+                }
+                else
+                {
+                    suggestions.AppendLine(
+                        $".{pyType}()"
+                    );
+                }
+                textBoxSuggestions.Text = suggestions.ToString();
+            }
+            catch (Exception ex)
+            {
+                textBoxSuggestions.Text = $"Error generating suggestions: {ex.Message}";
+            }
+        }
+        catch (Exception)
+        {
+            ShowWindow(lastHwnd, SW_RESTORE);
+            SetForegroundWindow(lastHwnd);
+
+            if (_retrySelect == false)
+            {
+                _retrySelect = true;
+                SelectElement(element);
+                return;
+            }
+            else
+            {
+                textBoxDetails.AppendText("Application not found or element not available");
+                _retrySelect = false;
+                return;
+            }
+        }
+    }
+
     public Inspector()
     {
         InitializeComponent();
@@ -87,108 +215,9 @@ class Inspector : Form
         {
             textBoxDetails.Clear();
             textBoxSuggestions.Clear();
-
             if (el.Node.Tag is AutomationElement element)
             {
-                foreach (var prop in element.GetSupportedProperties())
-                {
-                    var line = string.Empty;
-                    switch (prop.ProgrammaticName)
-                    {
-                        case "AutomationElementIdentifiers.ClassNameProperty":
-                            line = $"ClassName: {element.Current.ClassName}";
-                            break;
-                        case "AutomationElementIdentifiers.NameProperty":
-                            line = $"Name: {element.Current.Name}";
-                            break;
-                        case "AutomationElementIdentifiers.AutomationIdProperty":
-                            line = $"AutomationId: {element.Current.AutomationId}";
-                            break;
-                        case "AutomationElementIdentifiers.ControlTypeProperty":
-                            line = $"ControlType: {element.Current.LocalizedControlType}";
-                            break;
-                        case "AutomationElementIdentifiers.BoundingRectangleProperty":
-                            var rect = element.GetCurrentPropertyValue(prop) as Rect?;
-                            line = $"BoundingRectangle: {rect?.X}, {rect?.Y}, {rect?.Width}, {rect?.Height}";
-                            break;
-                        case "AutomationElementIdentifiers.ParentProperty":
-                            var parent = element.GetCurrentPropertyValue(prop) as AutomationElement;
-                            line = $"Parent: {parent?.Current.Name}";
-                            break;
-                        default:
-                            continue;
-                    }
-                    textBoxDetails.AppendText(line + Environment.NewLine);
-                }
-
-                try
-                {
-                    StringBuilder suggestions = new();
-                    var name = element.Current.Name;
-                    var className = element.Current.ClassName;
-                    var automationId = element.Current.AutomationId;
-
-                    var window = GetParentWindow(element);
-                    suggestions.AppendLine(
-                        $".WindowControl(Name={window.Current.Name}, ClassName={window.Current.ClassName})"
-                    );
-
-                    static string Quote(string s) => s is null ? "''" : "\"" + s.Replace("\"", "\"\"") + "\"";
-                    var locType = element.Current.LocalizedControlType?.ToLowerInvariant() ?? "";
-                    if (!PythonControlMap.TryGetValue(locType, out var pyType))
-                        pyType = "CustomControl";
-
-                    if (!string.IsNullOrEmpty(name) && !string.IsNullOrWhiteSpace(className) && !string.IsNullOrWhiteSpace(automationId))
-                    {
-                        suggestions.AppendLine(
-                            $".{pyType}(Name={Quote(name)}, ClassName={Quote(className)}, AutomationId={Quote(automationId)})"
-                        );
-                    }
-                    else if (!string.IsNullOrEmpty(name) && !string.IsNullOrWhiteSpace(className))
-                    {
-                        suggestions.AppendLine(
-                            $".{pyType}(Name={Quote(name)}, ClassName={Quote(className)})"
-                        );
-                    }
-                    else if (!string.IsNullOrEmpty(name) && !string.IsNullOrWhiteSpace(automationId))
-                    {
-                        suggestions.AppendLine(
-                            $".{pyType}(Name={Quote(name)}, AutomationId={Quote(automationId)})"
-                        );
-                    }
-                    else if (!string.IsNullOrEmpty(className) && !string.IsNullOrWhiteSpace(automationId))
-                    {
-                        suggestions.AppendLine(
-                            $".{pyType}(ClassName={Quote(className)}, AutomationId={Quote(automationId)})"
-                        );
-                    }
-                    else if (!string.IsNullOrEmpty(name))
-                    {
-                        suggestions.AppendLine(
-                            $".{pyType}(Name={Quote(name)})"
-                        );
-                    }
-                    else if (!string.IsNullOrEmpty(className))
-                    {
-                        suggestions.AppendLine(
-                            $".{pyType}(ClassName={Quote(className)})"
-                        );
-                    }
-                    else if (!string.IsNullOrEmpty(automationId))
-                    {
-                        suggestions.AppendLine(
-                            $".{pyType}(AutomationId={Quote(automationId)})"
-                        );
-                    }
-                    else
-                    {
-                    }
-                    textBoxSuggestions.Text = suggestions.ToString();
-                }
-                catch (Exception ex)
-                {
-                    textBoxSuggestions.Text = $"Error generating suggestions: {ex.Message}";
-                }
+                SelectElement(element);
             }
         };
     }
@@ -245,7 +274,7 @@ class Inspector : Form
     private static void ActiveParentWindow(AutomationElement element)
     {
         if (element == null) return;
-        var window = GetParentWindow(element);
+        var window = GetTopmostWindow(element);
         if (window == null) return;
         var hwnd = new IntPtr(window.Current.NativeWindowHandle);
         if (hwnd == IntPtr.Zero) return;
@@ -452,7 +481,7 @@ class Inspector : Form
     {
         if (e == null) return;
 
-        AutomationElement window = GetParentWindow(e);
+        AutomationElement window = GetTopmostWindow(e);
         if (window == null) return;
 
         // Build the automation tree for the parent window
@@ -470,7 +499,7 @@ class Inspector : Form
             treeViewAll.SelectedNode = selectedNode;
             selectedNode.EnsureVisible();
         }
-
+        lastHwnd = new IntPtr(window.Current.NativeWindowHandle);
     }
 
     private static TreeNode FindNode(TreeNode root, AutomationElement element)
@@ -528,14 +557,24 @@ class Inspector : Form
         return rootNode;
     }
 
-    static AutomationElement GetParentWindow(AutomationElement e)
+    private static AutomationElement GetTopmostWindow(AutomationElement e)
     {
+        if (e == null) return null;
         var walker = TreeWalker.ControlViewWalker;
-        var p = walker.GetParent(e);
-        while (p != null && p.Current.ControlType != ControlType.Window)
-            p = walker.GetParent(p);
-        return p;
+        AutomationElement topWindow = null;
+        var current = e;
+
+        while (current != null)
+        {
+            if (current.Current.ControlType == ControlType.Window)
+                topWindow = current;
+            current = walker.GetParent(current);
+        }
+
+        return topWindow;
+
     }
+
 }
 
 
