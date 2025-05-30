@@ -4,7 +4,8 @@ using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Forms;
 using System.Linq;
-
+using System.Text;
+using System.Collections.Generic;
 static class Program
 {
     [STAThread]
@@ -32,6 +33,50 @@ class Inspector : Form
     private TextBox searchBar;
     private TreeView treeViewAll;
     private TextBox textBoxDetails;
+    private TextBox textBoxSuggestions;
+    private static readonly Dictionary<string, string> PythonControlMap = new()
+    {
+        { "app bar",      "AppBarControl"     },
+        { "button",       "ButtonControl"     },
+        { "calendar",     "CalendarControl"   },
+        { "check box",    "CheckBoxControl"   },
+        { "combo box",    "ComboBoxControl"   },
+        { "custom",       "CustomControl"     },
+        { "data grid",    "DataGridControl"   },
+        { "data item",    "DataItemControl"   },
+        { "document",     "DocumentControl"   },
+        { "edit",         "EditControl"       },
+        { "group",        "GroupControl"      },
+        { "header",       "HeaderControl"     },
+        { "header item",  "HeaderItemControl" },
+        { "hyperlink",    "HyperlinkControl"  },
+        { "image",        "ImageControl"      },
+        { "list",         "ListControl"       },
+        { "list item",    "ListItemControl"   },
+        { "menu bar",     "MenuBarControl"    },
+        { "menu",         "MenuControl"       },
+        { "menu item",    "MenuItemControl"   },
+        { "pane",         "PaneControl"       },
+        { "progress bar", "ProgressBarControl"},
+        { "radio button", "RadioButtonControl"},
+        { "scroll bar",   "ScrollBarControl"  },
+        { "slider",       "SliderControl"     },
+        { "spinner",      "SpinnerControl"    },
+        { "split button", "SplitButtonControl"},
+        { "status bar",   "StatusBarControl"  },
+        { "tab",          "TabControl"        },
+        { "tab item",     "TabItemControl"    },
+        { "table",        "TableControl"      },
+        { "text",         "TextControl"       },
+        { "thumb",        "ThumbControl"      },
+        { "title bar",    "TitleBarControl"   },
+        { "tool bar",     "ToolBarControl"    },
+        { "tool tip",     "ToolTipControl"    },
+        { "tree",         "TreeControl"       },
+        { "tree item",    "TreeItemControl"   },
+        { "window",       "WindowControl"     },
+        { "item",         "DataItemControl"   }
+    };
 
     public Inspector()
     {
@@ -40,16 +85,13 @@ class Inspector : Form
 
         treeViewAll.AfterSelect += (s, el) =>
         {
-            // Limpa o TextBox
             textBoxDetails.Clear();
+            textBoxSuggestions.Clear();
+
             if (el.Node.Tag is AutomationElement element)
             {
                 foreach (var prop in element.GetSupportedProperties())
                 {
-
-                    // var value = element.GetCurrentPropertyValue(prop) ?? "(null)";
-                    // line = $"{prop.ProgrammaticName}: {value}";
-                    
                     var line = string.Empty;
                     switch (prop.ProgrammaticName)
                     {
@@ -78,8 +120,192 @@ class Inspector : Form
                     }
                     textBoxDetails.AppendText(line + Environment.NewLine);
                 }
+
+                try
+                {
+                    StringBuilder suggestions = new();
+                    var name = element.Current.Name;
+                    var className = element.Current.ClassName;
+                    var automationId = element.Current.AutomationId;
+
+                    var window = GetParentWindow(element);
+                    suggestions.AppendLine(
+                        $".WindowControl(Name={window.Current.Name}, ClassName={window.Current.ClassName})"
+                    );
+
+                    static string Quote(string s) => s is null ? "''" : "\"" + s.Replace("\"", "\"\"") + "\"";
+                    var locType = element.Current.LocalizedControlType?.ToLowerInvariant() ?? "";
+                    if (!PythonControlMap.TryGetValue(locType, out var pyType))
+                        pyType = "CustomControl";
+
+                    if (!string.IsNullOrEmpty(name) && !string.IsNullOrWhiteSpace(className) && !string.IsNullOrWhiteSpace(automationId))
+                    {
+                        suggestions.AppendLine(
+                            $".{pyType}(Name={Quote(name)}, ClassName={Quote(className)}, AutomationId={Quote(automationId)})"
+                        );
+                    }
+                    else if(!string.IsNullOrEmpty(name) && !string.IsNullOrWhiteSpace(className))
+                    {
+                        suggestions.AppendLine(
+                            $".{pyType}(Name={Quote(name)}, ClassName={Quote(className)})"
+                        );
+                    }
+                    else if (!string.IsNullOrEmpty(name) && !string.IsNullOrWhiteSpace(automationId))
+                    {
+                        suggestions.AppendLine(
+                            $".{pyType}(Name={Quote(name)}, AutomationId={Quote(automationId)})"
+                        );
+                    }
+                    else if (!string.IsNullOrEmpty(className) && !string.IsNullOrWhiteSpace(automationId))
+                    {
+                        suggestions.AppendLine(
+                            $".{pyType}(ClassName={Quote(className)}, AutomationId={Quote(automationId)})"
+                        );
+                    }
+                    else if (!string.IsNullOrEmpty(name))
+                    {
+                        suggestions.AppendLine(
+                            $".{pyType}(Name={Quote(name)})"
+                        );
+                    }
+                    else if (!string.IsNullOrEmpty(className))
+                    {
+                        suggestions.AppendLine(
+                            $".{pyType}(ClassName={Quote(className)})"
+                        );
+                    }
+                    else if (!string.IsNullOrEmpty(automationId))
+                    {
+                        suggestions.AppendLine(
+                            $".{pyType}(AutomationId={Quote(automationId)})"
+                        );
+                    }
+                    else
+                    {
+                    }
+                    textBoxSuggestions.Text = suggestions.ToString();
+                }
+                catch (Exception ex)
+                {
+                    textBoxSuggestions.Text = $"Error generating suggestions: {ex.Message}";
+                }
             }
         };
+    }
+
+    private ContextMenuStrip contextMenu;
+
+    private void SetupContextMenu()
+    {
+        contextMenu = new ContextMenuStrip();
+
+        var menuClick = new ToolStripMenuItem("Click");
+        menuClick.Click += (s, e) => PerformClickOnSelectedNode();
+
+        var menuRightClick = new ToolStripMenuItem("Right Click");
+        menuRightClick.Click += (s, e) => PerformRightClickOnSelectedNode();
+
+        var menuType = new ToolStripMenuItem("Type Text");
+        menuType.Click += (s, e) => PerformTypingOnSelectedNode();
+
+        var menuDoubleClick = new ToolStripMenuItem("Double Click");
+        menuDoubleClick.Click += (s, e) => PerformDoubleClickOnSelectedNode();
+
+        contextMenu.Items.Add(menuClick);
+        contextMenu.Items.Add(menuRightClick);
+        contextMenu.Items.Add(menuDoubleClick);
+        contextMenu.Items.Add(menuType);
+
+        treeViewAll.NodeMouseClick += (s, e) =>
+        {
+            if (e.Button == MouseButtons.Right)
+            {
+                treeViewAll.SelectedNode = e.Node;
+                contextMenu.Show(treeViewAll, e.Location);
+            }
+        };
+    }
+
+    // add these at the top of your class:
+    [DllImport("user32.dll")]
+    static extern bool SetCursorPos(int X, int Y);
+    [DllImport("user32.dll")]
+    static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, UIntPtr dwExtraInfo);
+    const uint MOUSEEVENTF_RIGHTDOWN = 0x0008;
+    const uint MOUSEEVENTF_RIGHTUP = 0x0010;
+    const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
+    const uint MOUSEEVENTF_LEFTUP = 0x0004;
+
+    private void PerformClickOnSelectedNode()
+    {
+        if (treeViewAll.SelectedNode?.Tag is not AutomationElement element) return;
+        var rect = element.GetCurrentPropertyValue(AutomationElement.BoundingRectangleProperty) as Rect?;
+        if (rect.HasValue)
+        {
+            int x = (int)(rect.Value.X + rect.Value.Width / 2);
+            int y = (int)(rect.Value.Y + rect.Value.Height / 2);
+            SetCursorPos(x, y);
+            mouse_event(MOUSEEVENTF_LEFTDOWN, (uint)x, (uint)y, 0, UIntPtr.Zero);
+            mouse_event(MOUSEEVENTF_LEFTUP, (uint)x, (uint)y, 0, UIntPtr.Zero);
+        }
+    }
+
+    private void PerformRightClickOnSelectedNode()
+    {
+        if (treeViewAll.SelectedNode?.Tag is not AutomationElement element) return;
+
+        var rect = element.GetCurrentPropertyValue(AutomationElement.BoundingRectangleProperty) as Rect?;
+        if (rect.HasValue)
+        {
+            int x = (int)(rect.Value.X + rect.Value.Width / 2);
+            int y = (int)(rect.Value.Y + rect.Value.Height / 2);
+            SetCursorPos(x, y);
+            mouse_event(MOUSEEVENTF_RIGHTDOWN, (uint)x, (uint)y, 0, UIntPtr.Zero);
+            mouse_event(MOUSEEVENTF_RIGHTUP, (uint)x, (uint)y, 0, UIntPtr.Zero);
+        }
+    }
+    private void PerformDoubleClickOnSelectedNode()
+    {
+        if (treeViewAll.SelectedNode?.Tag is not AutomationElement element) return;
+
+        var rect = element.GetCurrentPropertyValue(AutomationElement.BoundingRectangleProperty) as Rect?;
+        if (rect.HasValue)
+        {
+            var x = (int)(rect.Value.X + rect.Value.Width / 2);
+            var y = (int)(rect.Value.Y + rect.Value.Height / 2);
+            SetCursorPos(x, y);
+            mouse_event(MOUSEEVENTF_LEFTDOWN, (uint)x, (uint)y, 0, UIntPtr.Zero);
+            mouse_event(MOUSEEVENTF_LEFTUP, (uint)x, (uint)y, 0, UIntPtr.Zero);
+            mouse_event(MOUSEEVENTF_LEFTDOWN, (uint)x, (uint)y, 0, UIntPtr.Zero);
+            mouse_event(MOUSEEVENTF_LEFTUP, (uint)x, (uint)y, 0, UIntPtr.Zero);
+        }
+    }
+
+    private void PerformTypingOnSelectedNode()
+    {
+        if (treeViewAll.SelectedNode?.Tag is not AutomationElement element) return;
+
+        var rect = element.GetCurrentPropertyValue(AutomationElement.BoundingRectangleProperty) as Rect?;
+        if (rect.HasValue)
+        {
+            var x = (int)(rect.Value.X + rect.Value.Width / 2);
+            var y = (int)(rect.Value.Y + rect.Value.Height / 2);
+            
+            var str = Microsoft.VisualBasic.Interaction.InputBox(
+            "Please type the text you want to send to the selected element:",
+            "User Input",
+            ""
+            );
+
+            if (!string.IsNullOrEmpty(str))
+            {
+                SetCursorPos(x, y);
+                mouse_event(MOUSEEVENTF_LEFTDOWN, (uint)x, (uint)y, 0, UIntPtr.Zero);
+                mouse_event(MOUSEEVENTF_LEFTUP, (uint)x, (uint)y, 0, UIntPtr.Zero);
+                SendKeys.SendWait(str);
+            }
+        }
+
     }
 
     private static TreeNode FindNodeByText(TreeNode root, string text)
@@ -104,9 +330,8 @@ class Inspector : Form
             Orientation = Orientation.Vertical
         };
 
-        Load += (s, e) => splitContainer.SplitterDistance = (int)(this.ClientSize.Width * 2/3);
+        Load += (s, e) => splitContainer.SplitterDistance = ClientSize.Width * 3 / 5;
 
-        // TableLayoutPanel no lado esquerdo
         var leftPanel = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -116,7 +341,6 @@ class Inspector : Form
         leftPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         leftPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
 
-        // search bar
         searchBar = new TextBox
         {
             Dock = DockStyle.Top,
@@ -148,26 +372,43 @@ class Inspector : Form
             }
         };
 
-        // Árvore completa
         treeViewAll = new TreeView
         {
             Dock = DockStyle.Fill,
             HideSelection = false
         };
         leftPanel.Controls.Add(treeViewAll);
-
-        // adiciona o leftContainer ao painel esquerdo do split principal
         splitContainer.Panel1.Controls.Add(leftPanel);
 
-        // Detalhes do elemento
+        var rightPanel = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 2
+        };
+        rightPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 50F));
+        rightPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 50F));
+
         textBoxDetails = new TextBox { Dock = DockStyle.Fill, Multiline = true };
-        splitContainer.Panel2.Controls.Add(textBoxDetails);
+        rightPanel.Controls.Add(textBoxDetails, 0, 0);
+
+        textBoxSuggestions = new TextBox
+        {
+            Dock = DockStyle.Fill,
+            Multiline = true,
+            ReadOnly = true
+        };
+        rightPanel.Controls.Add(textBoxSuggestions, 0, 1);
+
+        splitContainer.Panel2.Controls.Add(rightPanel);
 
         Controls.Add(splitContainer);
 
         Text = "Inspector Tree";
-        Width = 900;
+        Width = 1000;
         Height = 700;
+
+        SetupContextMenu();
     }
 
 
@@ -188,29 +429,22 @@ class Inspector : Form
 
     void ShowInfo(AutomationElement e)
     {
-        // Elemento inspecionado
-        if (e == null)
-        {
-            Console.WriteLine("Elemento não encontrado.");
-            return;
-        }
+        if (e == null) return;
 
         AutomationElement window = GetParentWindow(e);
         if (window == null) return;
 
-        // Cria a árvore de renderização
+        // Build the automation tree for the parent window
         var fullRoot = BuildAutomationTree(window);
 
-        // Exibe no treeViewAll
+        // Setup the tree view
         treeViewAll.Nodes.Clear();
         var fullRootNode = CreateTreeNode(fullRoot);
         treeViewAll.Nodes.Add(fullRootNode);
 
-        // Seleciona o elemento na árvore
         var selectedNode = FindNode(fullRootNode, e);
         if (selectedNode != null)
         {
-            // Obter o foco da treeview
             treeViewAll.Focus();
             treeViewAll.SelectedNode = selectedNode;
             selectedNode.EnsureVisible();
@@ -237,7 +471,7 @@ class Inspector : Form
     {
         var newNode = new TreeNode(source.Text)
         {
-            Tag = source.Tag  // importante para o AfterSelect
+            Tag = source.Tag
         };
         foreach (TreeNode child in source.Nodes)
             newNode.Nodes.Add(CreateTreeNode(child));
@@ -245,11 +479,8 @@ class Inspector : Form
         return newNode;
     }
 
-    // monta recursivamente um ElementNode
     static TreeNode BuildAutomationTree(AutomationElement el)
     {
-        // Se não houver Name, exibe o tipo de controle
-        // tenta Name, depois LocalizedControlType, depois AutomationId, depois ClassName, senão "(unknown)"
         var candidates = new[]
         {
             el.Current.Name,
@@ -263,7 +494,7 @@ class Inspector : Form
 
         var rootNode = new TreeNode(name)
         {
-            Tag = el // mantém o AutomationElement se precisar depois
+            Tag = el
         };
 
         var children = el.FindAll(
