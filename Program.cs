@@ -32,49 +32,47 @@ class Inspector : Form
     private TextBox textBoxDetails;
     private TextBox textBoxSuggestions;
     private nint lastHwnd;
-    private static readonly Dictionary<string, string> PythonControlMap = new()
-    {
-        { "app bar",      "AppBarControl"     },
-        { "button",       "ButtonControl"     },
-        { "calendar",     "CalendarControl"   },
-        { "check box",    "CheckBoxControl"   },
-        { "combo box",    "ComboBoxControl"   },
-        { "custom",       "CustomControl"     },
-        { "data grid",    "DataGridControl"   },
-        { "data item",    "DataItemControl"   },
-        { "document",     "DocumentControl"   },
-        { "edit",         "EditControl"       },
-        { "group",        "GroupControl"      },
-        { "header",       "HeaderControl"     },
-        { "header item",  "HeaderItemControl" },
-        { "hyperlink",    "HyperlinkControl"  },
-        { "image",        "ImageControl"      },
-        { "list",         "ListControl"       },
-        { "list item",    "ListItemControl"   },
-        { "menu bar",     "MenuBarControl"    },
-        { "menu",         "MenuControl"       },
-        { "menu item",    "MenuItemControl"   },
-        { "pane",         "PaneControl"       },
-        { "progress bar", "ProgressBarControl"},
-        { "radio button", "RadioButtonControl"},
-        { "scroll bar",   "ScrollBarControl"  },
-        { "slider",       "SliderControl"     },
-        { "spinner",      "SpinnerControl"    },
-        { "split button", "SplitButtonControl"},
-        { "status bar",   "StatusBarControl"  },
-        { "tab",          "TabControl"        },
-        { "tab item",     "TabItemControl"    },
-        { "table",        "TableControl"      },
-        { "text",         "TextControl"       },
-        { "thumb",        "ThumbControl"      },
-        { "title bar",    "TitleBarControl"   },
-        { "tool bar",     "ToolBarControl"    },
-        { "tool tip",     "ToolTipControl"    },
-        { "tree",         "TreeControl"       },
-        { "tree item",    "TreeItemControl"   },
-        { "window",       "WindowControl"     },
-        { "item",         "DataItemControl"   }
-    };
+    private static readonly Dictionary<int, string> ControlMapById = new()
+{
+    { ControlType.Button.Id,       "ButtonControl"     },
+    { ControlType.Calendar.Id,     "CalendarControl"   },
+    { ControlType.CheckBox.Id,     "CheckBoxControl"   },
+    { ControlType.ComboBox.Id,     "ComboBoxControl"   },
+    { ControlType.Custom.Id,       "CustomControl"     },
+    { ControlType.DataGrid.Id,     "DataGridControl"   },
+    { ControlType.DataItem.Id,     "DataItemControl"   },
+    { ControlType.Document.Id,     "DocumentControl"   },
+    { ControlType.Edit.Id,         "EditControl"       },
+    { ControlType.Group.Id,        "GroupControl"      },
+    { ControlType.Header.Id,       "HeaderControl"     },
+    { ControlType.HeaderItem.Id,   "HeaderItemControl" },
+    { ControlType.Hyperlink.Id,    "HyperlinkControl"  },
+    { ControlType.Image.Id,        "ImageControl"      },
+    { ControlType.List.Id,         "ListControl"       },
+    { ControlType.ListItem.Id,     "ListItemControl"   },
+    { ControlType.MenuBar.Id,      "MenuBarControl"    },
+    { ControlType.Menu.Id,         "MenuControl"       },
+    { ControlType.MenuItem.Id,     "MenuItemControl"   },
+    { ControlType.Pane.Id,         "PaneControl"       },
+    { ControlType.ProgressBar.Id,  "ProgressBarControl" },
+    { ControlType.RadioButton.Id,  "RadioButtonControl" },
+    { ControlType.ScrollBar.Id,    "ScrollBarControl"  },
+    { ControlType.Slider.Id,       "SliderControl"     },
+    { ControlType.Spinner.Id,      "SpinnerControl"    },
+    { ControlType.SplitButton.Id,  "SplitButtonControl"},
+    { ControlType.StatusBar.Id,    "StatusBarControl"  },
+    { ControlType.Tab.Id,          "TabControl"        },
+    { ControlType.TabItem.Id,      "TabItemControl"    },
+    { ControlType.Table.Id,        "TableControl"      },
+    { ControlType.Text.Id,         "TextControl"       },
+    { ControlType.Thumb.Id,        "ThumbControl"      },
+    { ControlType.TitleBar.Id,     "TitleBarControl"   },
+    { ControlType.ToolBar.Id,      "ToolBarControl"    },
+    { ControlType.ToolTip.Id,      "ToolTipControl"    },
+    { ControlType.Tree.Id,         "TreeControl"       },
+    { ControlType.TreeItem.Id,     "TreeItemControl"   },
+    { ControlType.Window.Id,       "WindowControl"     }
+};
 
 
     private bool _retrySelect = false;
@@ -128,8 +126,11 @@ class Inspector : Form
 
                 static string Quote(string s) => s is null ? "''" : "\"" + s.Replace("\"", "\"\"") + "\"";
                 var locType = element.Current.LocalizedControlType?.ToLowerInvariant() ?? "";
-                if (!PythonControlMap.TryGetValue(locType, out var pyType))
+                var controlId = element.Current.ControlType.Id;
+                if (!ControlMapById.TryGetValue(controlId, out var pyType))
+                {
                     pyType = "CustomControl";
+                }
 
                 if (!string.IsNullOrEmpty(name) && !string.IsNullOrWhiteSpace(className) && !string.IsNullOrWhiteSpace(automationId))
                 {
@@ -531,13 +532,16 @@ class Inspector : Form
 
     static TreeNode BuildAutomationTree(AutomationElement el)
     {
+        int ctrlId = el.Current.ControlType.Id;
+        if (!ControlMapById.TryGetValue(ctrlId, out var controlType))
+        {
+            controlType = "CustomControl";
+        }
         var candidates = new[]
         {
             el.Current.Name,
-            el.Current.LocalizedControlType,
-            el.Current.ItemType,
             el.Current.AutomationId,
-            el.Current.ClassName
+            controlType
         };
 
         var name = candidates.FirstOrDefault(s => !string.IsNullOrWhiteSpace(s));
