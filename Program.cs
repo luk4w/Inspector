@@ -79,34 +79,34 @@ class Inspector : Form
     private void SelectElement(AutomationElement element)
     {
         try
-        {
+        {         
             foreach (var prop in element.GetSupportedProperties())
             {
                 var line = string.Empty;
-                switch (prop.ProgrammaticName)
+                // list all properties of the element
+                if (prop == AutomationElement.NameProperty)
                 {
-                    case "AutomationElementIdentifiers.ClassNameProperty":
-                        line = $"ClassName: {element.Current.ClassName}";
-                        break;
-                    case "AutomationElementIdentifiers.NameProperty":
-                        line = $"Name: {element.Current.Name}";
-                        break;
-                    case "AutomationElementIdentifiers.AutomationIdProperty":
-                        line = $"AutomationId: {element.Current.AutomationId}";
-                        break;
-                    case "AutomationElementIdentifiers.ControlTypeProperty":
-                        line = $"ControlType: {element.Current.LocalizedControlType}";
-                        break;
-                    case "AutomationElementIdentifiers.BoundingRectangleProperty":
-                        var rect = element.GetCurrentPropertyValue(prop) as Rect?;
-                        line = $"BoundingRectangle: {rect?.X}, {rect?.Y}, {rect?.Width}, {rect?.Height}";
-                        break;
-                    case "AutomationElementIdentifiers.ParentProperty":
-                        var parent = element.GetCurrentPropertyValue(prop) as AutomationElement;
-                        line = $"Parent: {parent?.Current.Name}";
-                        break;
-                    default:
-                        continue;
+                    line = $"Name: {element.Current.Name}";
+                }
+                else if (prop == AutomationElement.ClassNameProperty)
+                {
+                    line = $"ClassName: {element.Current.ClassName}";
+                }
+                else if (prop == AutomationElement.AutomationIdProperty)
+                {
+                    line = $"AutomationId: {element.Current.AutomationId}";
+                }
+                else if (prop == AutomationElement.ControlTypeProperty)
+                {
+                    line = $"ControlType: {element.Current.ControlType.ProgrammaticName}";
+                }
+                else if (prop == AutomationElement.LocalizedControlTypeProperty)
+                {
+                    line = $"LocalizedControlType: {element.Current.LocalizedControlType}";
+                }
+                else
+                {
+                    continue; // Skip unsupported properties
                 }
                 textBoxDetails.AppendText(line + Environment.NewLine);
             }
@@ -121,7 +121,7 @@ class Inspector : Form
 
                 var window = GetTopmostWindow(element);
                 suggestions.AppendLine(
-                    $".WindowControl(Name={window.Current.Name}, ClassName={window.Current.ClassName})"
+                    $".WindowControl(Name=\"{window.Current.Name}\", ClassName=\"{window.Current.ClassName}\")"
                 );
 
                 static string Quote(string s) => s is null ? "''" : "\"" + s.Replace("\"", "\"\"") + "\"";
@@ -456,7 +456,7 @@ class Inspector : Form
         Controls.Add(splitContainer);
 
         Text = "Inspector Tree";
-        Width = 1000;
+        Width = 1200;
         Height = 700;
 
         SetupContextMenu();
