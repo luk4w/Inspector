@@ -11,6 +11,9 @@ static class Program
     [STAThread]
     static void Main()
     {
+        System.Windows.Forms.Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
+        System.Windows.Forms.Application.EnableVisualStyles();
+        System.Windows.Forms.Application.SetCompatibleTextRenderingDefault(false);
         System.Windows.Forms.Application.Run(new Inspector());
     }
 }
@@ -79,7 +82,10 @@ class Inspector : Form
     private void SelectElement(AutomationElement element)
     {
         try
-        {         
+        {
+            textBoxDetails.Clear();
+            textBoxSuggestions.Clear();
+
             foreach (var prop in element.GetSupportedProperties())
             {
                 var line = string.Empty;
@@ -488,6 +494,7 @@ class Inspector : Form
         // Build the automation tree for the parent window
         var fullRoot = BuildAutomationTree(window);
 
+
         // Setup the tree view
         treeViewAll.Nodes.Clear();
         var fullRootNode = CreateTreeNode(fullRoot);
@@ -532,31 +539,47 @@ class Inspector : Form
 
     static TreeNode BuildAutomationTree(AutomationElement el)
     {
-        int ctrlId = el.Current.ControlType.Id;
-        if (!ControlMapById.TryGetValue(ctrlId, out var controlType))
+        string controlType;
+        var currentControlType = el.Current.ControlType;
+        if (currentControlType != null)
         {
-            controlType = "CustomControl";
+            if (!ControlMapById.TryGetValue(currentControlType.Id, out controlType))
+            {
+                controlType = "CustomControl";
+            }
+        }
+        else
+        {
+            controlType = "UnknownControl";
         }
         var candidates = new[]
         {
-            el.Current.Name,
-            el.Current.AutomationId,
-            controlType
-        };
+        el.Current.Name,
+        el.Current.AutomationId,
+        controlType
+    };
 
-        var name = candidates.FirstOrDefault(s => !string.IsNullOrWhiteSpace(s));
+        var name = candidates.FirstOrDefault(s => !string.IsNullOrWhiteSpace(s)) ?? "(unnamed)";
 
         var rootNode = new TreeNode(name)
         {
             Tag = el
         };
 
-        var children = el.FindAll(
-            TreeScope.Children,
-            System.Windows.Automation.Condition.TrueCondition);
+        try
+        {
+            var children = el.FindAll(
+                TreeScope.Children,
+                System.Windows.Automation.Condition.TrueCondition);
 
-        foreach (AutomationElement child in children)
-            rootNode.Nodes.Add(BuildAutomationTree(child));
+            foreach (AutomationElement child in children)
+                rootNode.Nodes.Add(BuildAutomationTree(child));
+        }
+        catch (Exception)
+        {
+            // Ignore exceptions when trying to access children
+            // This can happen if the element is not accessible or has no children
+        }
 
         return rootNode;
     }
@@ -564,19 +587,14 @@ class Inspector : Form
     private static AutomationElement GetTopmostWindow(AutomationElement e)
     {
         if (e == null) return null;
-        var walker = TreeWalker.ControlViewWalker;
-        AutomationElement topWindow = null;
-        var current = e;
+        var walker = TreeWalker.RawViewWalker;
+        var p = e;
 
-        while (current != null)
+        while (p != null && p.Current.ControlType != ControlType.Window && p != AutomationElement.RootElement)
         {
-            if (current.Current.ControlType == ControlType.Window)
-                topWindow = current;
-            current = walker.GetParent(current);
+            p = walker.GetParent(p);
         }
-
-        return topWindow;
-
+        return p ?? AutomationElement.RootElement;
     }
 
 }
